@@ -35,23 +35,18 @@ class _StarLedRemoteScreenState extends State<StarLedRemoteScreen> {
   static const MethodChannel _irChannel = MethodChannel('starled_ir_channel');
 
   bool _hasIrEmitter = false;
-  String _status = "جاري فحص مستشعر IR...";
+  String _status = "جاهز - 0xFE01";
 
-  // تبديل العنوان بين أشهر عناوين StarLED (AMW 5904)
-  final List<List<int>> _addresses = const [
-    [0x00, 0xBF],
-    [0x00, 0xFF],
-    [0x40, 0xBF],
-  ];
-  int _addrIndex = 0;
+  // التبديل بين 0xFE01 (الافتراضي) و 0x01FE
+  bool _swapAddr = false;
 
-  // كود زر OK الحالي (يمكنك تغييره بالضغط المطوّل على أي كود اختبار بالأسفل)
-  int _okCode = 0x15;
+  // كود زر OK الحالي (اضغط مطوّلاً على أي كود اختبار بالأسفل لتثبيته)
+  int _okCode = 0x21;
 
-  // أشهر أكواد زر OK / ENTER البديلة لتلفزيونات StarLED
+  // أشهر أكواد OK البديلة لعنوان 0xFE01
   final List<int> _okCandidates = const [
-    0x0B, 0x15, 0x16, 0x1C, 0x44, 0x05,
-    0x14, 0x19, 0x52, 0x0E, 0x1A, 0x0A,
+    0x21, 0x15, 0x16, 0x17, 0x0B, 0x0D, 0x0E, 0x0F,
+    0x11, 0x13, 0x20, 0x41, 0x44, 0x45, 0x52, 0x5C,
   ];
 
   @override
@@ -72,15 +67,12 @@ class _StarLedRemoteScreenState extends State<StarLedRemoteScreen> {
     }
   }
 
-  String get _currentAddrHex {
-    final a = _addresses[_addrIndex];
-    return "${a[0].toRadixString(16).toUpperCase().padLeft(2, '0')}${a[1].toRadixString(16).toUpperCase().padLeft(2, '0')}";
-  }
+  String get _addrLabel => _swapAddr ? "0x01FE" : "0xFE01";
 
   void _toggleAddressCode() {
     setState(() {
-      _addrIndex = (_addrIndex + 1) % _addresses.length;
-      _status = "تم تغيير العنوان إلى: 0x$_currentAddrHex";
+      _swapAddr = !_swapAddr;
+      _status = "تم التبديل إلى: $_addrLabel";
     });
   }
 
@@ -111,14 +103,16 @@ class _StarLedRemoteScreenState extends State<StarLedRemoteScreen> {
     HapticFeedback.mediumImpact();
     if (!_hasIrEmitter) return;
 
-    final a = _addresses[_addrIndex];
-    final hex = cmd.toRadixString(16).toUpperCase().padLeft(2, '0');
+    final int a1 = _swapAddr ? 0x01 : 0xFE;
+    final int a2 = _swapAddr ? 0xFE : 0x01;
+    final String hex = cmd.toRadixString(16).toUpperCase();
+
     try {
       await _irChannel.invokeMethod('transmit', {
-        'pattern': _buildNecPattern(a[0], a[1], cmd),
+        'pattern': _buildNecPattern(a1, a2, cmd),
         'frequency': 38000,
       });
-      setState(() => _status = "$label (0x$_currentAddrHex / 0x$hex)");
+      setState(() => _status = "أرسل: $label (0x$hex)");
     } catch (_) {
       setState(() => _status = "فشل إرسال الإشارة");
     }
@@ -129,30 +123,30 @@ class _StarLedRemoteScreenState extends State<StarLedRemoteScreen> {
       style: ElevatedButton.styleFrom(
         backgroundColor: color ?? const Color(0xFF1E293B),
         foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 6),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       onPressed: () => _sendKey(label, cmd),
       child: icon != null
-          ? Icon(icon, size: 24)
-          : Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          ? Icon(icon, size: 22)
+          : Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final okHex = _okCode.toRadixString(16).toUpperCase().padLeft(2, '0');
+    final String okHex = _okCode.toRadixString(16).toUpperCase().padLeft(2, '0');
 
     return Scaffold(
       appBar: AppBar(
         title: const Text("StarLED HK320DF", style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFF1E293B),
-        centerTitle: true,
         actions: [
-          TextButton(
+          TextButton.icon(
             onPressed: _toggleAddressCode,
-            child: Text(
-              _currentAddrHex,
+            icon: const Icon(Icons.swap_horiz, color: Colors.amberAccent, size: 18),
+            label: Text(
+              _addrLabel,
               style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold),
             ),
           ),
@@ -165,7 +159,7 @@ class _StarLedRemoteScreenState extends State<StarLedRemoteScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Container(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                 decoration: BoxDecoration(
                   color: const Color(0xFF132A2E),
                   borderRadius: BorderRadius.circular(10),
@@ -174,81 +168,106 @@ class _StarLedRemoteScreenState extends State<StarLedRemoteScreen> {
                 child: Text(
                   _status,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
               Row(
                 children: [
-                  Expanded(child: _btn("POWER", 0x0D, color: Colors.red.shade700, icon: Icons.power_settings_new)),
+                  Expanded(child: _btn("POWER", 0x12, color: Colors.red.shade700, icon: Icons.power_settings_new)),
                   const SizedBox(width: 10),
-                  Expanded(child: _btn("SOURCE", 0x12, color: Colors.indigo.shade700)),
+                  Expanded(child: _btn("SOURCE", 0x18, color: Colors.indigo.shade700)),
                   const SizedBox(width: 10),
-                  Expanded(child: _btn("MUTE", 0x10, color: Colors.orange.shade800, icon: Icons.volume_off)),
+                  Expanded(child: _btn("MUTE", 0x10, color: Colors.teal.shade700, icon: Icons.volume_off)),
                 ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
+              // لوحة الأرقام 1 - 9 و 0 و MENU و EXIT
+              for (final row in [
+                [("1", 0x01), ("2", 0x02), ("3", 0x03)],
+                [("4", 0x04), ("5", 0x05), ("6", 0x06)],
+                [("7", 0x07), ("8", 0x08), ("9", 0x09)],
+              ]) ...[
+                Row(
+                  children: [
+                    Expanded(child: _btn(row[0].$1, row[0].$2)),
+                    const SizedBox(width: 10),
+                    Expanded(child: _btn(row[1].$1, row[1].$2)),
+                    const SizedBox(width: 10),
+                    Expanded(child: _btn(row[2].$1, row[2].$2)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
               Row(
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _btn("VOL +", 0x18, color: Colors.teal.shade700),
-                        const SizedBox(height: 8),
-                        _btn("VOL -", 0x19, color: Colors.teal.shade900),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _btn("CH +", 0x1A, color: Colors.blueGrey.shade700),
-                        const SizedBox(height: 8),
-                        _btn("CH -", 0x1B, color: Colors.blueGrey.shade900),
-                      ],
-                    ),
-                  ),
+                  Expanded(child: _btn("MENU", 0x14, color: Colors.blueGrey.shade700)),
+                  const SizedBox(width: 10),
+                  Expanded(child: _btn("0", 0x00)),
+                  const SizedBox(width: 10),
+                  Expanded(child: _btn("EXIT", 0x1C, color: Colors.blueGrey.shade700)),
                 ],
               ),
               const SizedBox(height: 16),
-              // أسهم التنقل وزر OK
-              Column(
-                children: [
-                  SizedBox(width: 90, child: _btn("UP", 0x01, icon: Icons.keyboard_arrow_up)),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(width: 85, child: _btn("RIGHT", 0x04, icon: Icons.keyboard_arrow_right)),
-                      const SizedBox(width: 10),
-                      SizedBox(
-                        width: 90,
-                        child: _btn("OK ($okHex)", _okCode, color: Colors.green.shade700),
-                      ),
-                      const SizedBox(width: 10),
-                      SizedBox(width: 85, child: _btn("LEFT", 0x03, icon: Icons.keyboard_arrow_left)),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(width: 90, child: _btn("DOWN", 0x02, icon: Icons.keyboard_arrow_down)),
-                ],
-              ),
-              const SizedBox(height: 14),
+              // VOL و CH والأسهم و OK
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Expanded(child: _btn("MENU", 0x14, color: Colors.deepPurple.shade700)),
+                  Expanded(
+                    flex: 2,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _btn("VOL +", 0x1A),
+                        const SizedBox(height: 10),
+                        _btn("VOL -", 0x1E),
+                      ],
+                    ),
+                  ),
                   const SizedBox(width: 10),
-                  Expanded(child: _btn("EXIT", 0x1F, color: Colors.brown.shade700)),
+                  Expanded(
+                    flex: 5,
+                    child: Column(
+                      children: [
+                        SizedBox(width: 66, child: _btn("UP", 0x19, icon: Icons.keyboard_arrow_up)),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(width: 56, child: _btn("RIGHT", 0x40, icon: Icons.keyboard_arrow_right)),
+                            const SizedBox(width: 6),
+                            SizedBox(
+                              width: 68,
+                              child: _btn("OK", _okCode, color: Colors.blue.shade700),
+                            ),
+                            const SizedBox(width: 6),
+                            SizedBox(width: 56, child: _btn("LEFT", 0x42, icon: Icons.keyboard_arrow_left)),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        SizedBox(width: 66, child: _btn("DOWN", 0x1D, icon: Icons.keyboard_arrow_down)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    flex: 2,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _btn("CH +", 0x1B),
+                        const SizedBox(height: 10),
+                        _btn("CH -", 0x1F),
+                      ],
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 18),
-              const Text(
-                "اختبار أكواد زر OK (اضغط للتجربة، واضغط مطوّلاً لتثبيته على زر OK):",
+              Text(
+                "اختبار أكواد زر OK (الحالي: 0x$okHex) — اضغط للتجربة، واضغط مطوّلاً لتثبيته:",
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: Colors.amberAccent),
+                style: const TextStyle(fontSize: 12, color: Colors.amberAccent),
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -262,18 +281,18 @@ class _StarLedRemoteScreenState extends State<StarLedRemoteScreen> {
                     onLongPress: () {
                       setState(() {
                         _okCode = code;
-                        _status = "تم تثبيت الكود 0x$hex لزر OK";
+                        _status = "تم تثبيت 0x$hex لزر OK";
                       });
                     },
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: isSelected ? Colors.green.shade700 : const Color(0xFF1E293B),
+                        backgroundColor: isSelected ? Colors.blue.shade700 : const Color(0xFF1E293B),
                         foregroundColor: Colors.white,
-                        minimumSize: const Size(64, 40),
+                        minimumSize: const Size(58, 38),
                         padding: EdgeInsets.zero,
                       ),
-                      onPressed: () => _sendKey("تجربة OK", code),
-                      child: Text(hex, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      onPressed: () => _sendKey("OK_TEST", code),
+                      child: Text(hex, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     ),
                   );
                 }).toList(),
