@@ -1,0 +1,89 @@
+name: Build Starlight Remote APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Create & Configure Starlight Remote Project
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
+          flutter create --org com.starlight.remote --platforms android starlight_app
+          cp main.dart starlight_app/lib/main.dart
+
+          cd starlight_app
+          sed -i 's/<application/<uses-permission android:name="android.permission.TRANSMIT_IR" \/>\n    <application/' android/app/src/main/AndroidManifest.xml
+          sed -i 's/android:label="starlight_app"/android:label="Starlight 32"/' android/app/src/main/AndroidManifest.xml
+
+          SRC_IMG=$(find .. -maxdepth 1 -iname "icon.*" | head -n 1)
+          if [ -n "$SRC_IMG" ]; then
+            rm -rf android/app/src/main/res/mipmap-anydpi*
+            for dir in android/app/src/main/res/mipmap-*; do
+              rm -f "$dir"/ic_launcher.*
+              convert "$SRC_IMG" -resize 192x192 PNG32:"$dir/ic_launcher.png"
+            done
+          fi
+
+          MAIN_KT=$(find android/app/src/main/kotlin -name "MainActivity.kt")
+          cat << 'EOF' > "$MAIN_KT"
+          package com.starlight.remote.starlight_app
+
+          import android.content.Context
+          import android.hardware.ConsumerIrManager
+          import io.flutter.embedding.android.FlutterActivity
+          import io.flutter.embedding.engine.FlutterEngine
+          import io.flutter.plugin.common.MethodChannel
+
+          class MainActivity: FlutterActivity() {
+              private val CHANNEL = "starlight_ir_channel"
+
+              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+                  super.configureFlutterEngine(flutterEngine)
+                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+                      val irManager = getSystemService(Context.CONSUMER_IR_SERVICE) as? ConsumerIrManager
+                      when (call.method) {
+                          "hasIrEmitter" -> {
+                              result.success(irManager?.hasIrEmitter() ?: false)
+                          }
+                          "transmit" -> {
+                              val patternList = call.argument<List<Int>>("pattern")
+                              val freq = call.argument<Int>("frequency") ?: 38000
+                              if (irManager != null && irManager.hasIrEmitter() && patternList != null) {
+                                  irManager.transmit(freq, patternList.toIntArray())
+                                  result.success(true)
+                              } else {
+                                  result.error("IR_UNAVAILABLE", "IR Blaster not available", null)
+                              }
+                          }
+                          else -> result.notImplemented()
+                      }
+                  }
+              }
+          }
+          EOF
+
+      - name: Build APK
+        run: |
+          cd starlight_app
+          flutter build apk --release --no-tree-shake-icons
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Starlight-Remote-APK
+          path: starlight_app/build/app/outputs/flutter-apk/app-release.apk
