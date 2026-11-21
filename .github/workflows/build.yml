@@ -1,4 +1,4 @@
-name: Build Starlight Remote APK
+name: Build StarLED Remote APK
 
 on:
   workflow_dispatch:
@@ -20,15 +20,15 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Create & Configure Starlight Remote Project
+      - name: Create & Configure StarLED Project
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
-          flutter create --org com.starlight.remote --platforms android starlight_app
-          cp main.dart starlight_app/lib/main.dart
+          flutter create --org com.starled.remote --platforms android starled_app
+          cp main.dart starled_app/lib/main.dart
 
-          cd starlight_app
+          cd starled_app
           sed -i 's/<application/<uses-permission android:name="android.permission.TRANSMIT_IR" \/>\n    <application/' android/app/src/main/AndroidManifest.xml
-          sed -i 's/android:label="starlight_app"/android:label="Starlight 32"/' android/app/src/main/AndroidManifest.xml
+          sed -i 's/android:label="starled_app"/android:label="StarLED Remote"/' android/app/src/main/AndroidManifest.xml
 
           SRC_IMG=$(find .. -maxdepth 1 -iname "icon.*" | head -n 1)
           if [ -n "$SRC_IMG" ]; then
@@ -41,7 +41,7 @@ jobs:
 
           MAIN_KT=$(find android/app/src/main/kotlin -name "MainActivity.kt")
           cat << 'EOF' > "$MAIN_KT"
-          package com.starlight.remote.starlight_app
+          package com.starled.remote.starled_app
 
           import android.content.Context
           import android.hardware.ConsumerIrManager
@@ -50,16 +50,14 @@ jobs:
           import io.flutter.plugin.common.MethodChannel
 
           class MainActivity: FlutterActivity() {
-              private val CHANNEL = "starlight_ir_channel"
+              private val CHANNEL = "starled_ir_channel"
 
               override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
                   super.configureFlutterEngine(flutterEngine)
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
                       val irManager = getSystemService(Context.CONSUMER_IR_SERVICE) as? ConsumerIrManager
                       when (call.method) {
-                          "hasIrEmitter" -> {
-                              result.success(irManager?.hasIrEmitter() ?: false)
-                          }
+                          "hasIrEmitter" -> result.success(irManager?.hasIrEmitter() ?: false)
                           "transmit" -> {
                               val patternList = call.argument<List<Int>>("pattern")
                               val freq = call.argument<Int>("frequency") ?: 38000
@@ -79,11 +77,11 @@ jobs:
 
       - name: Build APK
         run: |
-          cd starlight_app
+          cd starled_app
           flutter build apk --release --no-tree-shake-icons
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Starlight-Remote-APK
-          path: starlight_app/build/app/outputs/flutter-apk/app-release.apk
+          name: StarLED-Remote-APK
+          path: starled_app/build/app/outputs/flutter-apk/app-release.apk
